@@ -23,6 +23,7 @@ plt.rcParams.update({'font.size': 13})
 import warnings
 warnings.simplefilter("error")
 
+
 class IVDataBase(object):
     def __init__(self, location, show='no', **kwargs):
         """
@@ -211,6 +212,7 @@ class IVDataBase(object):
                             for element in list(pass_codeFolder.keys())[1:]:
                                 FoundFolder.intersection_update(set(pass_codeFolder[element]))
                         self._key2_foundfolder = list(FoundFolder)
+                        self._key2_foundfolder.sort()  # 固定 code 資料夾順序，否則每次開啟都會不同。
                         if len(self._key2_foundfolder) > 0:
                             if show == 'Yes':
                                 print('Search result in %s/%s folder for %s : %s ' %
@@ -339,6 +341,7 @@ class IVDataBase(object):
                                 for element in list(pass_codeFolder.keys())[1:]:
                                     FoundFolder.intersection_update(set(pass_codeFolder[element]))
                             self._key2_foundfolder = list(FoundFolder)
+                            self._key2_foundfolder.sort()  # 固定 code 資料夾順序，否則每次開啟都會不同。
                             if len(self._key2_foundfolder) > 0:
                                 if show == 'Yes':
                                     print('Search result in %s/%s folder for %s : %s ' %
@@ -495,7 +498,7 @@ class IVDataBase(object):
                 info = {'active': 200, 'FGR': 4, 'AGR': 250, 'order': 2, 'depth': NoneValue, 'Y': int(Y)}
             elif Y == '2' and x == '3' and y == '1':
                 info = {'active': 200, 'FGR': 4, 'AGR': 240, 'order': 2, 'depth': NoneValue, 'Y': int(Y)}
-            elif Y == '8':
+            elif Y == '8' or Y == '9':
                 info = {'active': 240, 'FGR': NoneValue, 'AGR': NoneValue, 'order': NoneValue, 'depth': int(x), 'Y': int(Y)}
             else:
                 raise BaseException("%s isn't prepared" % code)
@@ -862,6 +865,115 @@ class IVDataBase(object):
 
         fig.show()
 
+    def iv_plot(self, number, label_flag='on', label='partial', title=None,
+                draw_list=None, except_list=None, colorparm=None, **kwargs):
+
+        self._key_contradiction(kwargs)
+
+        def col_number(CurveList):
+            if int(len(CurveList) / 4) == 0:
+                return 1
+            else:
+                return int(len(CurveList) / 4)
+
+        def check_key(info, kwargs):
+            info_name_list = self._key1 + self._key2
+            name_info = {info_name_list[index]: element for index, element in enumerate(info)}
+            flag = 0
+            for key in kwargs:
+                if isinstance(kwargs[key], list):
+                    for element in kwargs[key]:
+                        if str(element) == name_info[key]:
+                            flag = 2
+                            break
+                    if flag == 2:
+                        flag = 0
+                    else:
+                        flag = 1
+                else:
+                    if str(kwargs[key]) != name_info[key]:
+                        flag = 1
+                        break
+            if flag == 0:
+                return True
+            else:
+                return False
+
+        Color_Storage = dict()
+
+        def color_func(info, colorparm):
+            if colorparm is None:
+                return ColorSet[i % len(ColorSet)]
+            else:
+                if colorparm not in self._key1 and colorparm not in self._key2:
+                    raise BaseException("Wrong color parameter: %s" % colorparm)
+                else:
+                    info_name_list = self._key1 + self._key2
+                    name_info = {info_name_list[index]: element for index, element in enumerate(info)}
+                    if name_info[colorparm] not in Color_Storage:
+                        Color_Storage[name_info[colorparm]] = ColorSet[len(list(Color_Storage.items())) - 1]
+                    return Color_Storage[name_info[colorparm]]
+
+        plt.figure(number)
+        ColorSet = ['dodgerblue', 'yellowgreen', 'goldenrod', 'darkviolet',
+                    'darkorange', 'brown', 'b', 'hotpink', 'fuchsia', 'g', 'tomato',
+                    'purple', 'olive', 'darkgrey', 'royalblue']
+        LineStyleSet = ['-', '-.', '--', ':', (0, (3, 1, 1, 1))]
+
+        curve_info = [self._reverse_filename(filename) for i, filename in enumerate(self.filename(show='No'))]
+        if label == 'partial':
+            Filename = []
+            for info in curve_info:
+                date, code, light, number = info[:4]
+                Filename.append(date + '-' + code + light + '-' + number)
+        elif label == 'full':
+            Filename = curve_info
+        elif label == 'parameter':
+            Filename = []
+            for info in curve_info:
+                info_name_list = self._key1 + self._key2
+                name_info = {info_name_list[index]: element for index, element in enumerate(info)}
+                Filename.append(name_info['date'] + '-' + name_info['code'] + name_info['light'] +
+                                '-' + name_info['number'] + '-' + colorparm + ':' + name_info[colorparm])
+        else:
+            raise BaseException("Wrong name settings(partial/full): %s" % label)
+
+        if draw_list is not None and except_list is not None:
+            raise BaseException("Cannot use draw_list and except_list simultaneously")
+
+        CurveList = []
+        IV = self.read()
+        for i in range(len(IV)):
+            if draw_list is None:
+                if except_list is None:
+                    if check_key(curve_info[i], kwargs):
+                        CurveList.append(i)
+                else:
+                    if i not in except_list:
+                        if check_key(curve_info[i], kwargs):
+                            CurveList.append(i)
+            else:
+                if i in draw_list:
+                    if check_key(curve_info[i], kwargs):
+                        CurveList.append(i)
+
+        if len(CurveList) == 0:
+            raise BaseException("No such curve!")
+        if len(CurveList) >= len(ColorSet) * len(LineStyleSet):
+            raise BaseException("Too many curves (%s) (Max:%s)" % (len(IV), len(ColorSet) * len(LineStyleSet)))
+        for i in CurveList:
+            plt.plot(IV[i].X, abs(IV[i].Y), color=color_func(curve_info[i], colorparm),
+                     linestyle=LineStyleSet[int(i / len(ColorSet))],
+                     label='[%s] %s' % (i, Filename[i]))
+        if label_flag == 'on':
+            plt.legend(loc='best', ncol=col_number(CurveList))
+        if title is not None:
+            plt.title(title)
+        plt.grid()
+        plt.yscale('log')
+        plt.xlabel('Voltage (V)')
+        plt.ylabel('Current (A)')
+
 
 class Statistics(IVDataBase):
     def __init__(self, location, show='no'):
@@ -1059,7 +1171,7 @@ class Statistics(IVDataBase):
                     print('[%s-%s%s-%s]  %s' % (row['date'], row['code'], row['light'], row['number'],
                                                 ['%s: %s' % (key, value) for key, value in temprow.items()]))
 
-    def plot(self, x, y, avg='No', std='No', null='no', absvalue='Yes', **kwargs):
+    def plot(self, x, y, avg='No', std='No', xnull='No', ynull='No', absvalue='Yes', str_number=7, **kwargs):
         """
         挑選兩參數互相做圖，觀察關係。
         :param x: 橫軸參數，如元件主動區直徑（Ex: x='active'）。
@@ -1118,15 +1230,26 @@ class Statistics(IVDataBase):
         with open(self._statistics, 'r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                if null == 'no':
+                if row['code'] == str(6613) and 'active' in kwargs:
+                    print(kwargs['active'], row['active'], str(kwargs['active']) == row['active'], row['Vpt'], row['Vb'])
+                if x == 'Vpt' and 'active' in kwargs:
+                    if kwargs['active'] == 400:
+                        print('[Out] Code: %s      Active: %s    Vpt: %s    Vb: %s' % (row['code'], row['active'], row['Vpt'], row['Vb']))
+                        if row['active'] == str(400):
+                            print('[------] Active: %s     Vpt: %s    Vb: %s' % (row['active'], row['Vpt'], row['Vb']))
+                if ynull == 'No':
                     if row[y] != 'null':
-                        if str_flag == 0 and not row[x].replace('.', '', 1).replace('-', '', 1).isdigit():
+                        if str_flag == 0 and not row[x].replace('.', '', 1).replace('-', '', 1).isdigit() and xnull == 'Yes':
                             str_flag = 1
                         if gate(row, kwargs) and row[y] != '':
                             if row[x].replace('.', '', 1).replace('-', '', 1).isdigit():
                                 X.append(float(row[x]))
                             else:
-                                X.append(7)
+                                if xnull == 'No':
+                                    break
+                                else:
+                                    X.append(str_number)
+
                             if row[y].replace('.', '', 1).replace('-', '', 1).isdigit():
                                 if absvalue == 'Yes':
                                     Y.append(abs(float(row[y])))
@@ -1141,17 +1264,23 @@ class Statistics(IVDataBase):
                         if row[x].replace('.', '', 1).replace('-', '', 1).isdigit():
                             X.append(float(row[x]))
                         else:
-                            X.append(7)
+                            if xnull == 'No':
+                                break
+                            else:
+                                X.append(str_number)
                         if row[y].replace('.', '', 1).replace('-', '', 1).isdigit():
                             if absvalue == 'Yes':
                                 Y.append(abs(float(row[y])))
                             else:
                                 Y.append(float(row[y]))
                         else:
-                            Y.append(row[y])
+                            Y.append(str_number)
         if str_flag == 0:
+            if x == 'Vpt' and 'active' in kwargs:
+                if kwargs['active'] == 400:
+                    print(X, Y)
             X, Y = utils.orderfunction(X.copy(), Y.copy(), 'increasing')
-        Data = {'X': X, 'Y': Y}
+        Data = {'X': np.array(X), 'Y': np.array(Y)}
         if avg == 'Yes':
             temp = {}
             for i, x in enumerate(X):
@@ -1159,8 +1288,8 @@ class Statistics(IVDataBase):
                     temp[x] = [Y[i]]
                 else:
                     temp[x].append(Y[i])
-            Data['X_avg'] = [key for key in temp]
-            Data['Y_avg'] = [sum(temp[key]) / len(temp[key]) for key in temp]
+            Data['X_avg'] = np.array([key for key in temp])
+            Data['Y_avg'] = np.array([sum(temp[key]) / len(temp[key]) for key in temp])
         else:
             if avg != 'No':
                 raise BaseException('Wrong avg value (Yes/No):  %s' % avg)
@@ -1171,24 +1300,25 @@ class Statistics(IVDataBase):
                     temp[x] = [Y[i]]
                 else:
                     temp[x].append(Y[i])
-            Data['X_std'] = [key for key in temp]
+            Data['X_std'] = np.array([key for key in temp])
             temp_std = {key: [(value - sum(temp[key]) / len(temp[key])) ** 2 for value in temp[key]] for key in temp}
-            Data['Y_std'] = [np.sqrt(sum(temp_std[key]) / len(temp_std[key])) for key in temp]
+            Data['Y_std'] = np.array([np.sqrt(sum(temp_std[key]) / len(temp_std[key])) for key in temp])
         return Data
 
     def check(self, **kwargs):
         """
         給定 (date, code, light, number)，針對該元件量測結果，檢查其電性參數是否已登錄齊全。
-        :param kwargs: 可選 (date, code, light, number)。
+        :param kwargs: 可選 (date, code, light, number, Y, active, FGR, AGR, order, depth)。
         :return: 印出結果。
 
         DB.check(code=1521)  # 檢查代碼為 1512 的所有元件的參數登錄狀況。
         DB.check(date=1124, code=1721, light='L', number=1)  # 檢查此量測數據的參數登錄狀況
         """
         Remaining = dict()
+        found_flag = 0
         for key in kwargs:
-            if key not in self._key1:
-                raise BaseException("%s is not in permissible list %s" % (key, self._key1))
+            if key not in self._key1 and key not in self._key2:
+                raise BaseException("%s is not in permissible list %s" % (key, self._key1 + self._key2))
         if 'number' in kwargs and ('date' not in kwargs or 'code' not in kwargs or 'light' not in kwargs):
             raise BaseException("Only number indication is not enough.")
         with open(self._statistics, 'r', newline='') as csvfile:
@@ -1199,6 +1329,7 @@ class Statistics(IVDataBase):
                     if row[key] != str(kwargs[key]):
                         flag = 1
                 if flag == 0:
+                    found_flag = 1
                     for key in row:
                         if key in self._characteristics[4:] and row[key] == '':
                             name = row['date'] + '-' + row['code'] + row['light'] + '-' + row['number']
@@ -1206,10 +1337,13 @@ class Statistics(IVDataBase):
                                 Remaining[key] = [name]
                             else:
                                 Remaining[key].append(name)
-        if len(list(Remaining.items())) == 0:
-            print('%s is completed!' % kwargs)
+        if found_flag == 0:
+            raise BaseException("%s not found in the IV database" % kwargs)
         else:
-            print('Uncompleted parameters:')
-            for key in Remaining:
-                for item in Remaining[key]:
-                    print('[%s]   %s' % (key, item))
+            if len(list(Remaining.items())) == 0:
+                print('%s is completed!' % kwargs)
+            else:
+                print('Uncompleted parameters:')
+                for key in Remaining:
+                    for item in Remaining[key]:
+                        print('[%s]   %s' % (key, item))
